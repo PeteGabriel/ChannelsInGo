@@ -7,11 +7,16 @@ import (
 	"net"
 )
 
+type host struct {
+	name string
+	client client
+}
+
 type client chan<- string
 
 var (
-	entering = make(chan client)
-	leaving  = make(chan client)
+	entering = make(chan host)
+	leaving  = make(chan host)
 	messages = make(chan string)
 )
 
@@ -36,19 +41,28 @@ func main() {
 }
 
 func broadcaster() {
-	clients := make(map[client]bool) //a channel for each connected host
+	clients := make(map[host]bool) //a channel for each connected host
 	for {
 		select {
 		case msg := <-messages:
 			for cli := range clients {
-				cli <- msg
+				cli.client <- msg
 			}
 		case cli := <-entering:
 			clients[cli] = true
+			go showInRoom(clients, cli)
 		case cli := <-leaving:
 			delete(clients, cli)
-			close(cli)
+			close(cli.client)
 		}
+	}
+}
+
+func showInRoom(clients map[host]bool, to host) {
+	for c := range clients {
+	  if c.name != to.name{
+	    to.client <- c.name + " is in the room"
+	  }
 	}
 }
 
@@ -59,14 +73,14 @@ func handleConn(conn net.Conn) {
 	who := conn.RemoteAddr().String()
 	ch <- "You are " + who
 	messages <- who + " has arrived"
-	entering <- ch
+	entering <- host{name: who, client:ch}
 
 	input := bufio.NewScanner(conn)
 	for input.Scan() {
 		messages <- who + ": " + input.Text()
 	}
 
-	leaving <- ch
+	leaving <- host{name: who, client:ch}
 	messages <- who + " has left"
 	conn.Close()
 }
